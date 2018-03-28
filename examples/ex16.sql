@@ -22,18 +22,17 @@ This software has been released under the MIT license:
   THE SOFTWARE.
 */
 set serveroutput on;
-declare 
-  ret json_list;
-begin
-  ret := json_dyn.executeList('select * from tab');
-  ret.print;
-end;
+DECLARE
+    ret pljson_list;
+BEGIN
+    ret := pljson_dyn.executelist('select * from emp');
+    ret.print;
+END;
 /
-declare 
-  ret json;
-begin
-  ret := json_dyn.executeObject('select * from tab');
-  ret.print;
-end;
+DECLARE
+    ret pljson;
+BEGIN
+    ret := pljson_dyn.executeobject('select * from emp');
+    ret.print;
+END;
 /
-desc tab
