@@ -23,24 +23,26 @@ This software has been released under the MIT license:
 */
 /* Conversion between json and json_list, featuring get_keys and get_values */
 
+/* Conversion between json and json_list, featuring get_keys and get_values */
+
 set serveroutput on;
-declare 
-  l_obj json_list := json_list('[1,2,3]');
-  j_obj json;
-begin
-  j_obj := json(l_obj); --conversion in constructor
-  j_obj.print;
-  
-  j_obj := json('{"a":true, "b":17}');
-  l_obj := j_obj.get_values;
-  l_obj.print;
-  
-  l_obj.append(true);
-  j_obj := json(l_obj);
-  
-  j_obj.print;
-  j_obj.get_keys().print;
-  j_obj.get_values().print;
- 
-end;
+DECLARE
+    l_obj pljson_list := pljson_list('[1,2,3]');
+    j_obj pljson;
+BEGIN
+    j_obj := pljson(l_obj); --conversion in constructor
+    j_obj.print;
+
+    j_obj := pljson('{"a":true, "b":17}');
+    l_obj := j_obj.get_values;
+    l_obj.print;
+
+    l_obj.append(TRUE);
+    j_obj := pljson(l_obj);
+
+    j_obj.print;
+    j_obj.get_keys().print;
+    j_obj.get_values().print;
+
+END;
 /
