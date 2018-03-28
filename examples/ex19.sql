@@ -24,12 +24,12 @@ This software has been released under the MIT license:
 /* Outputting unescaped values */
 
 set serveroutput on;
-declare 
-  obj json;
-begin
-  obj := json();
-  obj.put('foo1', json_value('function() { a = 12;}'));
-  obj.put('foo2', json_value('function() { a = 12;}', false));
-  obj.print; --beware - the output does not conform to the JSON standard now.
-end;
+DECLARE
+    obj pljson;
+BEGIN
+    obj := pljson();
+    obj.put('foo1', pljson_value('function() { a = 12;}'));
+    obj.put('foo2', pljson_value('function() { a = 12;}', FALSE));
+    obj.print; --beware - the output does not conform to the JSON standard now.
+END;
 /
