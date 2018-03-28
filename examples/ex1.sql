@@ -30,12 +30,12 @@ This software has been released under the MIT license:
 
 set serveroutput on format wrapped;
 declare
-  obj json;
+  obj pljson;
 begin
-  obj := json('{"a": true }');
+  obj := pljson('{"a": true }');
   obj.print;
   --more complex json:
-  obj := json('
+  obj := pljson('
 {
   "a": null,
   "b": 12.243,
