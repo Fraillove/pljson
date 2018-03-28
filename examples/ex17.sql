@@ -28,24 +28,25 @@ This software has been released under the MIT license:
                  get(indx)
 */
 set serveroutput on;
-declare 
-  obj json;
-  indx number;
-begin
-  --fast construction of json
-  obj := json();
-  obj.check_duplicate(false); --enables fast construction without checks for duplicate keys
-  for i in 1 .. 10000 loop
-    obj.put('A'||i, true);
-  end loop;
-  obj.put('A'||5565, 'tada');
-  obj.check_duplicate(true);
-  obj.remove_duplicates(); --fix the possible duplicates but does not preserve order
+DECLARE
+    obj  pljson;
+    indx NUMBER;
+BEGIN
+    --fast construction of json
+    obj := pljson();
+    obj.check_duplicate(FALSE); --enables fast construction without checks for duplicate keys
+    FOR i IN 1 .. 10000 LOOP
+        obj.put('A' || i, TRUE);
+    END LOOP;
+    obj.put('A' || 5565, 'tada');
+    obj.check_duplicate(TRUE);
+    obj.remove_duplicates(); --fix the possible duplicates but does not preserve order
 
-  dbms_output.put_line('Total count: '||obj.count);
-  indx := obj.index_of('A5565');
-  dbms_output.put_line('Index of A5565: '||indx);
-  dbms_output.put_line('Entry at '||indx||': '||obj.get(indx).to_char);
+    dbms_output.put_line('Total count: ' || obj.count);
+    indx := obj.index_of('A5565');
+    dbms_output.put_line('Index of A5565: ' || indx);
+    dbms_output.put_line('Entry at ' || indx || ': ' || obj.get(indx)
+                         .to_char);
 
-end;
+END;
 /
