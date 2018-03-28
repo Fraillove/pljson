@@ -24,25 +24,25 @@ This software has been released under the MIT license:
 /* Base64 binary support */
 
 set serveroutput on;
-declare 
-  obj json_list;
-  binarydata blob := utl_raw.cast_to_raw('ABC');
-  getback blob;
-begin
-  obj := json_ext.base64(binarydata);
-  obj.print;
-  getback := json_ext.base64(obj);
-  dbms_output.put_line(utl_raw.cast_to_varchar2(getback));
-end;
+DECLARE
+    obj        pljson_list;
+    binarydata BLOB := utl_raw.cast_to_raw('ABC');
+    getback    BLOB;
+BEGIN
+    obj := pljson_ext.base64(binarydata);
+    obj.print;
+    getback := pljson_ext.base64(obj);
+    dbms_output.put_line(utl_raw.cast_to_varchar2(getback));
+END;
 /
-declare 
-  obj json_value;
-  binarydata blob := utl_raw.cast_to_raw('ABC');
-  getback blob;
-begin
-  obj := json_ext.encode(binarydata);
-  obj.print;
-  getback := json_ext.decode(obj);
-  dbms_output.put_line(utl_raw.cast_to_varchar2(getback));
-end;
+DECLARE
+    obj        pljson_value;
+    binarydata BLOB := utl_raw.cast_to_raw('ABC');
+    getback    BLOB;
+BEGIN
+    obj := pljson_ext.encode(binarydata);
+    obj.print;
+    getback := pljson_ext.decode(obj);
+    dbms_output.put_line(utl_raw.cast_to_varchar2(getback));
+END;
 /
