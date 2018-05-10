@@ -54,8 +54,7 @@ PROMPT ------------------------------------------;
 PROMPT -- Adding optional packages for PL/JSON --;
 PROMPT ------------------------------------------;
 @@src/addons/pljson_dyn.package.sql --dynamic sql execute
-@@src/addons/pljson_ml.package.sql --jsonml (xml to json)
-@@src/addons/pljson_xml.package.sql --json to xml copied from http://www.json.org/java/org/json/XML.java
+@@src/addons/pljson_xml.package.sql --json to xml and xml to json copied from http://www.json.org/java/org/json/XML.java
 @@src/addons/pljson_util_pkg.package.sql --dynamic sql from http://ora-00001.blogspot.com/2010/02/ref-cursor-to-json.html
 @@src/addons/pljson_helper.package.sql --Set operations on JSON and JSON_LIST
 @@src/addons/pljson_table_impl.type.decl.sql -- dynamic table from json document
@@ -66,7 +65,6 @@ create synonym json_parser for pljson_parser;
 create synonym json_printer for pljson_printer;
 create synonym json_ext for pljson_ext;
 create synonym json_dyn for pljson_dyn;
-create synonym json_ml for pljson_ml;
 create synonym json_xml for pljson_xml;
 create synonym json_util_pkg for pljson_util_pkg;
 create synonym json_helper for pljson_helper;
