@@ -1,157 +1,462 @@
 set define off
 
-create or replace package pljson_xml as
-  /*
-  Copyright (c) 2010 Jonas Krogsboell
+CREATE OR REPLACE PACKAGE pljson_xml AS
+    jsonml_stylesheet xmltype := NULL;
 
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
+    FUNCTION xml2json(xml IN xmltype) RETURN pljson_list;
+    FUNCTION xmlstr2json(xmlstr IN VARCHAR2) RETURN pljson_list;
+    
+    FUNCTION json2xml
+    (
+        obj     pljson,
+        tagname VARCHAR2 DEFAULT 'root'
+    ) RETURN xmltype;
 
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-  */
-
-  /*
-  declare
-    obj json := json('{a:1,b:[2,3,4],c:true}');
-    x xmltype;
-  begin
-    obj.print;
-    x := json_xml.json_to_xml(obj);
-    dbms_output.put_line(x.getclobval());
-  end;
-  */
-
-  function json_to_xml(obj pljson, tagname varchar2 default 'root') return xmltype;
-
-end pljson_xml;
+END pljson_xml;
 /
 
-create or replace package body pljson_xml as
 
-  function escapeStr(str varchar2) return varchar2 as
-    buf varchar2(32767) := '';
-    ch varchar2(4);
-  begin
-    for i in 1 .. length(str) loop
-      ch := substr(str, i, 1);
-      case ch
-      when '&' then buf := buf || '&amp;';
-      when '<' then buf := buf || '&lt;';
-      when '>' then buf := buf || '&gt;';
-      when '"' then buf := buf || '&quot;';
-      else buf := buf || ch;
-      end case;
-    end loop;
-    return buf;
-  end escapeStr;
+CREATE OR REPLACE PACKAGE BODY pljson_xml AS
+    --private
+    FUNCTION get_jsonml_stylesheet RETURN xmltype AS
+    BEGIN
+        IF (jsonml_stylesheet IS NULL) THEN
+            jsonml_stylesheet := xmltype('<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+				xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 
-/* Clob methods from printer */
-  procedure add_to_clob(buf_lob in out nocopy clob, buf_str in out nocopy varchar2, str varchar2) as
-  begin
-    if(length(str) > 32767 - length(buf_str)) then
-      dbms_lob.append(buf_lob, buf_str);
-      buf_str := str;
-    else
-      buf_str := buf_str || str;
-    end if;
-  end add_to_clob;
-  
-  procedure flush_clob(buf_lob in out nocopy clob, buf_str in out nocopy varchar2) as
-  begin
-    dbms_lob.append(buf_lob, buf_str);
-  end flush_clob;
-  
-  procedure toString(obj pljson_value, tagname in varchar2, xmlstr in out nocopy clob, xmlbuf in out nocopy varchar2) as
-    v_obj pljson;
-    v_list pljson_list;
+	<xsl:output method="text"
+				media-type="application/json"
+				encoding="UTF-8"
+				indent="no"
+				omit-xml-declaration="yes" />
+
+	<!-- constants -->
+	<xsl:variable name="XHTML"
+				  select="''http://www.w3.org/1999/xhtml''" />
+
+	<xsl:variable name="START_ELEM"
+				  select="''[''" />
+
+	<xsl:variable name="END_ELEM"
+				  select="'']''" />
+
+	<xsl:variable name="VALUE_DELIM"
+				  select="'',''" />
+
+	<xsl:variable name="START_ATTRIB"
+				  select="''{''" />
+
+	<xsl:variable name="END_ATTRIB"
+				  select="''}''" />
+
+	<xsl:variable name="NAME_DELIM"
+				  select="'':''" />
+
+	<xsl:variable name="STRING_DELIM"
+				  select="''&#x22;''" />
+
+	<xsl:variable name="START_COMMENT"
+				  select="''/*''" />
+
+	<xsl:variable name="END_COMMENT"
+				  select="''*/''" />
+
+	<!-- root-node -->
+	<xsl:template match="/">
+		<xsl:apply-templates select="*" />
+	</xsl:template>
+
+	<!-- comments -->
+	<xsl:template match="comment()">
+	<!-- uncomment to support JSON comments -->
+	<!--
+		<xsl:value-of select="$START_COMMENT" />
+
+		<xsl:value-of select="."
+					  disable-output-escaping="yes" />
+
+		<xsl:value-of select="$END_COMMENT" />
+	-->
+	</xsl:template>
+
+	<!-- elements -->
+	<xsl:template match="*">
+		<xsl:value-of select="$START_ELEM" />
+
+		<!-- tag-name string -->
+		<xsl:value-of select="$STRING_DELIM" />
+		<xsl:choose>
+			<xsl:when test="namespace-uri()=$XHTML">
+				<xsl:value-of select="local-name()" />
+			</xsl:when>
+			<xsl:otherwise>
+				<xsl:value-of select="name()" />
+			</xsl:otherwise>
+		</xsl:choose>
+		<xsl:value-of select="$STRING_DELIM" />
+
+		<!-- attribute object -->
+		<xsl:if test="count(@*)>0">
+			<xsl:value-of select="$VALUE_DELIM" />
+			<xsl:value-of select="$START_ATTRIB" />
+			<xsl:for-each select="@*">
+				<xsl:if test="position()>1">
+					<xsl:value-of select="$VALUE_DELIM" />
+				</xsl:if>
+				<xsl:apply-templates select="." />
+			</xsl:for-each>
+			<xsl:value-of select="$END_ATTRIB" />
+		</xsl:if>
+
+		<!-- child elements and text-nodes -->
+		<xsl:for-each select="*|text()">
+			<xsl:value-of select="$VALUE_DELIM" />
+			<xsl:apply-templates select="." />
+		</xsl:for-each>
+
+		<xsl:value-of select="$END_ELEM" />
+	</xsl:template>
+
+	<!-- text-nodes -->
+	<xsl:template match="text()">
+		<xsl:call-template name="escape-string">
+			<xsl:with-param name="value"
+							select="." />
+		</xsl:call-template>
+	</xsl:template>
+
+	<!-- attributes -->
+	<xsl:template match="@*">
+		<xsl:value-of select="$STRING_DELIM" />
+		<xsl:choose>
+			<xsl:when test="namespace-uri()=$XHTML">
+				<xsl:value-of select="local-name()" />
+			</xsl:when>
+			<xsl:otherwise>
+				<xsl:value-of select="name()" />
+			</xsl:otherwise>
+		</xsl:choose>
+		<xsl:value-of select="$STRING_DELIM" />
+
+		<xsl:value-of select="$NAME_DELIM" />
+
+		<xsl:call-template name="escape-string">
+			<xsl:with-param name="value"
+							select="." />
+		</xsl:call-template>
+
+	</xsl:template>
+
+	<!-- escape-string: quotes and escapes -->
+	<xsl:template name="escape-string">
+		<xsl:param name="value" />
+
+		<xsl:value-of select="$STRING_DELIM" />
+
+		<xsl:if test="string-length($value)>0">
+			<xsl:variable name="escaped-whacks">
+				<!-- escape backslashes -->
+				<xsl:call-template name="string-replace">
+					<xsl:with-param name="value"
+									select="$value" />
+					<xsl:with-param name="find"
+									select="''\''" />
+					<xsl:with-param name="replace"
+									select="''\\''" />
+				</xsl:call-template>
+			</xsl:variable>
+
+			<xsl:variable name="escaped-LF">
+				<!-- escape line feeds -->
+				<xsl:call-template name="string-replace">
+					<xsl:with-param name="value"
+									select="$escaped-whacks" />
+					<xsl:with-param name="find"
+									select="''&#x0A;''" />
+					<xsl:with-param name="replace"
+									select="''\n''" />
+				</xsl:call-template>
+			</xsl:variable>
+
+			<xsl:variable name="escaped-CR">
+				<!-- escape carriage returns -->
+				<xsl:call-template name="string-replace">
+					<xsl:with-param name="value"
+									select="$escaped-LF" />
+					<xsl:with-param name="find"
+									select="''&#x0D;''" />
+					<xsl:with-param name="replace"
+									select="''\r''" />
+				</xsl:call-template>
+			</xsl:variable>
+
+			<xsl:variable name="escaped-tabs">
+				<!-- escape tabs -->
+				<xsl:call-template name="string-replace">
+					<xsl:with-param name="value"
+									select="$escaped-CR" />
+					<xsl:with-param name="find"
+									select="''&#x09;''" />
+					<xsl:with-param name="replace"
+									select="''\t''" />
+				</xsl:call-template>
+			</xsl:variable>
+
+			<!-- escape quotes -->
+			<xsl:call-template name="string-replace">
+				<xsl:with-param name="value"
+								select="$escaped-tabs" />
+				<xsl:with-param name="find"
+								select="''&quot;''" />
+				<xsl:with-param name="replace"
+								select="''\&quot;''" />
+			</xsl:call-template>
+		</xsl:if>
+
+		<xsl:value-of select="$STRING_DELIM" />
+	</xsl:template>
+
+	<!-- string-replace: replaces occurances of one string with another -->
+	<xsl:template name="string-replace">
+		<xsl:param name="value" />
+		<xsl:param name="find" />
+		<xsl:param name="replace" />
+
+		<xsl:choose>
+			<xsl:when test="contains($value,$find)">
+				<!-- replace and call recursively on next -->
+				<xsl:value-of select="substring-before($value,$find)"
+							  disable-output-escaping="yes" />
+				<xsl:value-of select="$replace"
+							  disable-output-escaping="yes" />
+				<xsl:call-template name="string-replace">
+					<xsl:with-param name="value"
+									select="substring-after($value,$find)" />
+					<xsl:with-param name="find"
+									select="$find" />
+					<xsl:with-param name="replace"
+									select="$replace" />
+				</xsl:call-template>
+			</xsl:when>
+			<xsl:otherwise>
+				<!-- no replacement necessary -->
+				<xsl:value-of select="$value"
+							  disable-output-escaping="yes" />
+			</xsl:otherwise>
+		</xsl:choose>
+	</xsl:template>
+
+</xsl:stylesheet>');
+        END IF;
+        RETURN jsonml_stylesheet;
+    END get_jsonml_stylesheet;
+
+    FUNCTION escapestr(str VARCHAR2) RETURN VARCHAR2 AS
+        buf VARCHAR2(32767) := '';
+        ch  VARCHAR2(4);
+    BEGIN
+        FOR i IN 1 .. length(str) LOOP
+            ch := substr(str, i, 1);
+            CASE ch
+                WHEN '&' THEN
+                    buf := buf || '&amp;';
+                WHEN '<' THEN
+                    buf := buf || '&lt;';
+                WHEN '>' THEN
+                    buf := buf || '&gt;';
+                WHEN '"' THEN
+                    buf := buf || '&quot;';
+                ELSE
+                    buf := buf || ch;
+            END CASE;
+        END LOOP;
+        RETURN buf;
+    END escapestr;
+
+    /* Clob methods from printer */
+    PROCEDURE add_to_clob
+    (
+        buf_lob IN OUT NOCOPY CLOB,
+        buf_str IN OUT NOCOPY VARCHAR2,
+        str     VARCHAR2
+    ) AS
+    BEGIN
+        IF (length(str) > 32767 - length(buf_str)) THEN
+            dbms_lob.append(buf_lob, buf_str);
+            buf_str := str;
+        ELSE
+            buf_str := buf_str || str;
+        END IF;
+    END add_to_clob;
+
+    PROCEDURE flush_clob
+    (
+        buf_lob IN OUT NOCOPY CLOB,
+        buf_str IN OUT NOCOPY VARCHAR2
+    ) AS
+    BEGIN
+        dbms_lob.append(buf_lob, buf_str);
+    END flush_clob;
+
+    PROCEDURE tostring
+    (
+        obj     pljson_value,
+        tagname IN VARCHAR2,
+        xmlstr  IN OUT NOCOPY CLOB,
+        xmlbuf  IN OUT NOCOPY VARCHAR2
+    ) AS
+        v_obj  pljson;
+        v_list pljson_list;
     
-    v_keys pljson_list;
-    v_value pljson_value;
-    key_str varchar2(4000);
-  begin
-    if (obj.is_object()) then
-      add_to_clob(xmlstr, xmlbuf, '<' || tagname || '>');
-      v_obj := pljson(obj);
-      
-      v_keys := v_obj.get_keys();
-      for i in 1 .. v_keys.count loop
-        v_value := v_obj.get(i);
-        key_str := v_keys.get(i).str;
+        v_keys  pljson_list;
+        v_value pljson_value;
+        key_str VARCHAR2(4000);
+    BEGIN
+        IF (obj.is_object()) THEN
+            add_to_clob(xmlstr, xmlbuf, '<' || tagname || '>');
+            v_obj := pljson(obj);
         
-        if(key_str = 'content') then
-          if(v_value.is_array()) then
-            declare
-              v_l pljson_list := pljson_list(v_value);
-            begin
-              for j in 1 .. v_l.count loop
-                if(j > 1) then add_to_clob(xmlstr, xmlbuf, chr(13)||chr(10)); end if;
-                add_to_clob(xmlstr, xmlbuf, escapeStr(v_l.get(j).to_char()));
-              end loop;
-            end;
-          else
-            add_to_clob(xmlstr, xmlbuf, escapeStr(v_value.to_char()));
-          end if;
-        elsif(v_value.is_array()) then
-          declare
-            v_l pljson_list := pljson_list(v_value);
-          begin
-            for j in 1 .. v_l.count loop
-              v_value := v_l.get(j);
-              if(v_value.is_array()) then
-                add_to_clob(xmlstr, xmlbuf, '<' || key_str || '>');
-                add_to_clob(xmlstr, xmlbuf, escapeStr(v_value.to_char()));
-                add_to_clob(xmlstr, xmlbuf, '</' || key_str || '>');
-              else
-                toString(v_value, key_str, xmlstr, xmlbuf);
-              end if;
-            end loop;
-          end;
-        elsif(v_value.is_null() or (v_value.is_string and v_value.get_string = '')) then
-          add_to_clob(xmlstr, xmlbuf, '<' || key_str || '/>');
-        else
-          toString(v_value, key_str, xmlstr, xmlbuf);
-        end if;
-      end loop;
-      
-      add_to_clob(xmlstr, xmlbuf, '</' || tagname || '>');
-    elsif (obj.is_array()) then
-      v_list := pljson_list(obj);
-      for i in 1 .. v_list.count loop
-        v_value := v_list.get(i);
-        toString(v_value, nvl(tagname, 'array'), xmlstr, xmlbuf);
-      end loop;
-    else
-      add_to_clob(xmlstr, xmlbuf, '<' || tagname || '>'||case when obj.value_of() is  not null then escapeStr(obj.value_of()) end ||'</' || tagname || '>');
-    end if;
-  end toString;
-  
-  function json_to_xml(obj pljson, tagname varchar2 default 'root') return xmltype as
-    xmlstr clob := empty_clob();
-    xmlbuf varchar2(32767) := '';
-    returnValue xmltype;
-  begin
-    dbms_lob.createtemporary(xmlstr, true);
-    
-    toString(obj.to_json_value(), tagname, xmlstr, xmlbuf);
-    
-    flush_clob(xmlstr, xmlbuf);
-    returnValue := xmltype('<?xml version="1.0"?>'||xmlstr);
-    dbms_lob.freetemporary(xmlstr);
-    return returnValue;
-  end;
+            v_keys := v_obj.get_keys();
+            FOR i IN 1 .. v_keys.count LOOP
+                v_value := v_obj.get(i);
+                key_str := v_keys.get(i).str;
+            
+                IF (key_str = 'content') THEN
+                    IF (v_value.is_array()) THEN
+                        DECLARE
+                            v_l pljson_list := pljson_list(v_value);
+                        BEGIN
+                            FOR j IN 1 .. v_l.count LOOP
+                                IF (j > 1) THEN
+                                    add_to_clob(xmlstr,
+                                                xmlbuf,
+                                                chr(13) || chr(10));
+                                END IF;
+                                add_to_clob(xmlstr,
+                                            xmlbuf,
+                                            escapestr(v_l.get(j).to_char()));
+                            END LOOP;
+                        END;
+                    ELSE
+                        add_to_clob(xmlstr,
+                                    xmlbuf,
+                                    escapestr(v_value.to_char()));
+                    END IF;
+                ELSIF (v_value.is_array()) THEN
+                    DECLARE
+                        v_l pljson_list := pljson_list(v_value);
+                    BEGIN
+                        FOR j IN 1 .. v_l.count LOOP
+                            v_value := v_l.get(j);
+                            IF (v_value.is_array()) THEN
+                                add_to_clob(xmlstr,
+                                            xmlbuf,
+                                            '<' || key_str || '>');
+                                add_to_clob(xmlstr,
+                                            xmlbuf,
+                                            escapestr(v_value.to_char()));
+                                add_to_clob(xmlstr,
+                                            xmlbuf,
+                                            '</' || key_str || '>');
+                            ELSE
+                                tostring(v_value, key_str, xmlstr, xmlbuf);
+                            END IF;
+                        END LOOP;
+                    END;
+                ELSIF (v_value.is_null() OR
+                      (v_value.is_string AND v_value.get_string IS NULL)) THEN
+                    add_to_clob(xmlstr, xmlbuf, '<' || key_str || '/>');
+                ELSE
+                    tostring(v_value, key_str, xmlstr, xmlbuf);
+                END IF;
+            END LOOP;
+        
+            add_to_clob(xmlstr, xmlbuf, '</' || tagname || '>');
+        ELSIF (obj.is_array()) THEN
+            v_list := pljson_list(obj);
+            FOR i IN 1 .. v_list.count LOOP
+                v_value := v_list.get(i);
+                tostring(v_value, nvl(tagname, 'array'), xmlstr, xmlbuf);
+            END LOOP;
+        ELSE
+            add_to_clob(xmlstr,
+                        xmlbuf,
+                        '<' || tagname || '>' || CASE WHEN
+                        obj.value_of() IS NOT NULL THEN
+                        escapestr(obj.value_of())
+                        END || '</' || tagname || '>');
+        END IF;
+    END tostring;
 
-end pljson_xml;
+    FUNCTION json2xml
+    (
+        obj     pljson,
+        tagname VARCHAR2 DEFAULT 'root'
+    ) RETURN xmltype AS
+        xmlstr      CLOB := empty_clob();
+        xmlbuf      VARCHAR2(32767) := '';
+        returnvalue xmltype;
+    BEGIN
+        dbms_lob.createtemporary(xmlstr, TRUE);
+    
+        tostring(obj.to_json_value(), tagname, xmlstr, xmlbuf);
+    
+        flush_clob(xmlstr, xmlbuf);
+        returnvalue := xmltype('<?xml version="1.0"?>' || xmlstr);
+        dbms_lob.freetemporary(xmlstr);
+        RETURN returnvalue;
+    END;
+
+    FUNCTION xml2json(xml IN xmltype) RETURN pljson_list AS
+        l_json        xmltype;
+        l_returnvalue CLOB;
+    BEGIN
+        l_json        := xml.transform(get_jsonml_stylesheet);
+        l_returnvalue := l_json.getclobval();
+        l_returnvalue := dbms_xmlgen.convert(l_returnvalue,
+                                             dbms_xmlgen.entity_decode);
+        --do.pl(l_returnvalue);
+        RETURN pljson_list(l_returnvalue);
+    END xml2json;
+
+    FUNCTION xmlstr2json(xmlstr IN VARCHAR2) RETURN pljson_list AS
+    BEGIN
+        RETURN xml2json(xmltype(xmlstr));
+    END xmlstr2json;
+
+END pljson_xml;
 /
+                                         
+
+/*
+DECLARE
+    obj pljson := pljson('{a:1,b:[2,3,4],c:true}');
+    x   xmltype;
+BEGIN
+    obj.print;
+    x := pljson_xml.json2xml(obj);
+    do.pl(x);
+    pljson_xml.xml2json(xmltype('<?xml version="1.0" encoding="UTF-8" ?>
+   <collection xmlns="">
+     <record>
+       <leader>-----nam0-22-----^^^450-</leader>
+       <datafield tag="200" ind1="1" ind2=" ">
+         <subfield code="a">Lebron</subfield>
+         <subfield code="f">Love</subfield>
+       </datafield>
+       <datafield tag="209" ind1=" " ind2=" ">
+         <subfield code="a">Harden</subfield>
+         <subfield code="b">Paul</subfield>
+         <subfield code="c">Durant</subfield>
+         <subfield code="d">Curry</subfield>
+       </datafield>
+       <datafield tag="610" ind1="0" ind2=" ">
+         <subfield code="a">Davis</subfield>
+         <subfield code="a">Rondo</subfield>
+       </datafield>
+     </record>
+   </collection>')).print();
+END;
+                                         
+*/
