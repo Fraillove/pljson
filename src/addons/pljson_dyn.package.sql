@@ -1,300 +1,337 @@
-create or replace package pljson_dyn authid current_user as
- /*
-  Copyright (c) 2010 Jonas Krogsboell
+CREATE OR REPLACE PACKAGE pljson_dyn AUTHID CURRENT_USER AS
+    null_as_empty_string BOOLEAN NOT NULL := TRUE; --varchar2
+    include_dates        BOOLEAN NOT NULL := TRUE;
+    include_clobs        BOOLEAN NOT NULL := TRUE;
+    include_blobs        BOOLEAN NOT NULL := FALSE;
 
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
+    /* list with objects */
+    FUNCTION executelist
+    (
+        stmt    VARCHAR2,
+        bindvar pljson DEFAULT NULL,
+        cur_num NUMBER DEFAULT NULL
+    ) RETURN pljson_list;
 
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
+    /* object with lists */
+    FUNCTION executeobject
+    (
+        stmt    VARCHAR2,
+        bindvar pljson DEFAULT NULL,
+        cur_num NUMBER DEFAULT NULL
+    ) RETURN pljson;
 
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-  */
+    $if DBMS_DB_VERSION.ver_le_11_2 $then
+    FUNCTION executelist(stmt IN OUT SYS_REFCURSOR) RETURN pljson_list;
+    FUNCTION executeobject(stmt IN OUT SYS_REFCURSOR) RETURN pljson;
+    $end
 
-  null_as_empty_string   boolean not null := true;  --varchar2
-  include_dates          boolean not null := true;  --date
-  include_clobs          boolean not null := true;
-  include_blobs          boolean not null := false;
-
-  /* list with objects */
-  function executeList(stmt varchar2, bindvar pljson default null, cur_num number default null) return pljson_list;
-
-  /* object with lists */
-  function executeObject(stmt varchar2, bindvar pljson default null, cur_num number default null) return pljson;
-
-
-  /* usage example:
-   * declare
-   *   res json_list;
-   * begin
-   *   res := json_dyn.executeList(
-   *            'select :bindme as one, :lala as two from dual where dummy in :arraybind',
-   *            json('{bindme:"4", lala:123, arraybind:[1,2,3,"X"]}')
-   *          );
-   *   res.print;
-   * end;
-   */
-
-/* --11g functions
-  function executeList(stmt in out sys_refcursor) return json_list;
-  function executeObject(stmt in out sys_refcursor) return json;
-*/
-end pljson_dyn;
+END pljson_dyn;
 /
 
-create or replace package body pljson_dyn as
+CREATE OR REPLACE PACKAGE BODY pljson_dyn AS
+
+    $if DBMS_DB_VERSION.ver_le_11_2 $then
+
+    FUNCTION executelist(stmt IN OUT SYS_REFCURSOR) RETURN json_list AS
+        l_cur NUMBER;
+    BEGIN
+        l_cur := dbms_sql.to_cursor_number(stmt);
+        RETURN json_dyn.executelist(NULL, NULL, l_cur);
+    END;
+
+    FUNCTION executeobject(stmt IN OUT SYS_REFCURSOR) RETURN json AS
+        l_cur NUMBER;
+    BEGIN
+        l_cur := dbms_sql.to_cursor_number(stmt);
+        RETURN json_dyn.executeobject(NULL, NULL, l_cur);
+    END;
+    $end
+
+    PROCEDURE bind_json
+    (
+        l_cur   NUMBER,
+        bindvar pljson
+    ) AS
+        keylist pljson_list := bindvar.get_keys();
+    BEGIN
+        FOR i IN 1 .. keylist.count LOOP
+            IF (bindvar.get(i).get_type = 'number') THEN
+                dbms_sql.bind_variable(l_cur,
+                                       ':' || keylist.get(i).get_string,
+                                       bindvar.get(i).get_number);
+            ELSIF (bindvar.get(i).get_type = 'array') THEN
+                DECLARE
+                    v_bind dbms_sql.varchar2_table;
+                    v_arr  pljson_list := pljson_list(bindvar.get(i));
+                BEGIN
+                    FOR j IN 1 .. v_arr.count LOOP
+                        v_bind(j) := v_arr.get(j).value_of;
+                    END LOOP;
+                    dbms_sql.bind_array(l_cur,
+                                        ':' || keylist.get(i).get_string,
+                                        v_bind);
+                END;
+            ELSE
+                dbms_sql.bind_variable(l_cur,
+                                       ':' || keylist.get(i).get_string,
+                                       bindvar.get(i).value_of());
+            END IF;
+        END LOOP;
+    END bind_json;
+
+    /* list with objects */
+    FUNCTION executelist
+    (
+        stmt    VARCHAR2,
+        bindvar pljson,
+        cur_num NUMBER
+    ) RETURN pljson_list AS
+        l_cur      NUMBER;
+        l_dtbl     dbms_sql.desc_tab2;
+        l_cnt      NUMBER;
+        l_status   NUMBER;
+        l_val      VARCHAR2(4000);
+        outer_list pljson_list := pljson_list();
+        inner_obj  pljson;
+        conv       NUMBER;
+        read_date  DATE;
+        read_clob  CLOB;
+        read_blob  BLOB;
+        col_type   NUMBER;
+    BEGIN
+        IF (cur_num IS NOT NULL) THEN
+            l_cur := cur_num;
+        ELSE
+            l_cur := dbms_sql.open_cursor;
+            dbms_sql.parse(l_cur, stmt, dbms_sql.native);
+            IF (bindvar IS NOT NULL) THEN
+                bind_json(l_cur, bindvar);
+            END IF;
+        END IF;
+        dbms_sql.describe_columns2(l_cur, l_cnt, l_dtbl);
+        FOR i IN 1 .. l_cnt LOOP
+            col_type := l_dtbl(i).col_type;
+            --do.pl(col_type);
+            IF (col_type = 12) THEN
+                dbms_sql.define_column(l_cur, i, read_date);
+            ELSIF (col_type = 112) THEN
+                dbms_sql.define_column(l_cur, i, read_clob);
+            ELSIF (col_type = 113) THEN
+                dbms_sql.define_column(l_cur, i, read_blob);
+            ELSIF (col_type IN (1, 2, 96)) THEN
+                dbms_sql.define_column(l_cur, i, l_val, 4000);
+            END IF;
+        END LOOP;
+    
+        IF (cur_num IS NULL) THEN
+            l_status := dbms_sql.execute(l_cur);
+        END IF;
+    
+        WHILE (dbms_sql.fetch_rows(l_cur) > 0) LOOP
+            inner_obj := pljson();
+            FOR i IN 1 .. l_cnt LOOP
+                CASE TRUE
+                    WHEN l_dtbl(i).col_type IN (1, 96) THEN
+                        -- varchar2
+                        dbms_sql.column_value(l_cur, i, l_val);
+                        IF (l_val IS NULL) THEN
+                            IF (null_as_empty_string) THEN
+                                inner_obj.put(l_dtbl(i).col_name, ''); --treatet as emptystring?
+                            ELSE
+                                inner_obj.put(l_dtbl(i).col_name,
+                                              pljson_value.makenull); --null
+                            END IF;
+                        ELSE
+                            inner_obj.put(l_dtbl(i).col_name,
+                                          pljson_value(l_val)); --null
+                        END IF;
+                        --do.pl(l_dtbl(i).col_name||' --> '||l_val||'varchar2' ||l_dtbl(i).col_type);
+                    WHEN l_dtbl(i).col_type = 2 THEN
+                        -- number
+                        dbms_sql.column_value(l_cur, i, l_val);
+                        conv := l_val;
+                        inner_obj.put(l_dtbl(i).col_name, conv);
+                        -- do.pl(l_dtbl(i).col_name||' --> '||l_val||'number ' ||l_dtbl(i).col_type);
+                    WHEN l_dtbl(i).col_type = 12 THEN
+                        -- date
+                        IF (include_dates) THEN
+                            dbms_sql.column_value(l_cur, i, read_date);
+                            inner_obj.put(l_dtbl(i).col_name,
+                                          pljson_ext.to_json_value(read_date));
+                        END IF;
+                        --do.pl(l_dtbl(i).col_name||' --> '||l_val||'date ' ||l_dtbl(i).col_type);
+                    WHEN l_dtbl(i).col_type = 112 THEN
+                        --clob
+                        IF (include_clobs) THEN
+                            dbms_sql.column_value(l_cur, i, read_clob);
+                            inner_obj.put(l_dtbl(i).col_name,
+                                          pljson_value(read_clob));
+                        END IF;
+                    WHEN l_dtbl(i).col_type = 113 THEN
+                        --blob
+                        IF (include_blobs) THEN
+                            dbms_sql.column_value(l_cur, i, read_blob);
+                            IF (dbms_lob.getlength(read_blob) > 0) THEN
+                                inner_obj.put(l_dtbl(i).col_name,
+                                              pljson_ext.encode(read_blob));
+                            ELSE
+                                inner_obj.put(l_dtbl(i).col_name,
+                                              pljson_value.makenull);
+                            END IF;
+                        END IF;
+                    
+                    ELSE
+                        NULL; --discard other types
+                END CASE;
+            END LOOP;
+            outer_list.append(inner_obj.to_json_value);
+        END LOOP;
+        dbms_sql.close_cursor(l_cur);
+        RETURN outer_list;
+    END executelist;
+
+    /* object with lists */
+    FUNCTION executeobject
+    (
+        stmt    VARCHAR2,
+        bindvar pljson,
+        cur_num NUMBER
+    ) RETURN pljson AS
+        l_cur            NUMBER;
+        l_dtbl           dbms_sql.desc_tab;
+        l_cnt            NUMBER;
+        l_status         NUMBER;
+        l_val            VARCHAR2(4000);
+        inner_list_names pljson_list := pljson_list();
+        inner_list_data  pljson_list := pljson_list();
+        data_list        pljson_list;
+        outer_obj        pljson := pljson();
+        conv             NUMBER;
+        read_date        DATE;
+        read_clob        CLOB;
+        read_blob        BLOB;
+        col_type         NUMBER;
+    BEGIN
+        IF (cur_num IS NOT NULL) THEN
+            l_cur := cur_num;
+        ELSE
+            l_cur := dbms_sql.open_cursor;
+            dbms_sql.parse(l_cur, stmt, dbms_sql.native);
+            IF (bindvar IS NOT NULL) THEN
+                bind_json(l_cur, bindvar);
+            END IF;
+        END IF;
+        dbms_sql.describe_columns(l_cur, l_cnt, l_dtbl);
+        FOR i IN 1 .. l_cnt LOOP
+            col_type := l_dtbl(i).col_type;
+            IF (col_type = 12) THEN
+                dbms_sql.define_column(l_cur, i, read_date);
+            ELSIF (col_type = 112) THEN
+                dbms_sql.define_column(l_cur, i, read_clob);
+            ELSIF (col_type = 113) THEN
+                dbms_sql.define_column(l_cur, i, read_blob);
+            ELSIF (col_type IN (1, 2, 96)) THEN
+                dbms_sql.define_column(l_cur, i, l_val, 4000);
+            END IF;
+        END LOOP;
+        IF (cur_num IS NULL) THEN
+            l_status := dbms_sql.execute(l_cur);
+        END IF;
+    
+        FOR i IN 1 .. l_cnt LOOP
+            CASE l_dtbl(i).col_type
+                WHEN 1 THEN
+                    inner_list_names.append(l_dtbl(i).col_name);
+                WHEN 96 THEN
+                    inner_list_names.append(l_dtbl(i).col_name);
+                WHEN 2 THEN
+                    inner_list_names.append(l_dtbl(i).col_name);
+                WHEN 12 THEN
+                    IF (include_dates) THEN
+                        inner_list_names.append(l_dtbl(i).col_name);
+                    END IF;
+                WHEN 112 THEN
+                    IF (include_clobs) THEN
+                        inner_list_names.append(l_dtbl(i).col_name);
+                    END IF;
+                WHEN 113 THEN
+                    IF (include_blobs) THEN
+                        inner_list_names.append(l_dtbl(i).col_name);
+                    END IF;
+                ELSE
+                    NULL;
+            END CASE;
+        END LOOP;
+    
+        WHILE (dbms_sql.fetch_rows(l_cur) > 0) LOOP
+            data_list := pljson_list();
+            FOR i IN 1 .. l_cnt LOOP
+                CASE TRUE
+                    WHEN l_dtbl(i).col_type IN (1, 96) THEN
+                        -- varchar2
+                        dbms_sql.column_value(l_cur, i, l_val);
+                        IF (l_val IS NULL) THEN
+                            IF (null_as_empty_string) THEN
+                                data_list.append(''); --treatet as emptystring?
+                            ELSE
+                                data_list.append(pljson_value.makenull); --null
+                            END IF;
+                        ELSE
+                            data_list.append(pljson_value(l_val)); --null
+                        END IF;
+                        --do.pl(l_dtbl(i).col_name||' --> '||l_val||'varchar2' ||l_dtbl(i).col_type);
+                --handling number types
+                    WHEN l_dtbl(i).col_type = 2 THEN
+                        -- number
+                        dbms_sql.column_value(l_cur, i, l_val);
+                        conv := l_val;
+                        data_list.append(conv);
+                        -- do.pl(l_dtbl(i).col_name||' --> '||l_val||'number ' ||l_dtbl(i).col_type);
+                    WHEN l_dtbl(i).col_type = 12 THEN
+                        -- date
+                        IF (include_dates) THEN
+                            dbms_sql.column_value(l_cur, i, read_date);
+                            data_list.append(pljson_ext.to_json_value(read_date));
+                        END IF;
+                        --do.pl(l_dtbl(i).col_name||' --> '||l_val||'date ' ||l_dtbl(i).col_type);
+                    WHEN l_dtbl(i).col_type = 112 THEN
+                        --clob
+                        IF (include_clobs) THEN
+                            dbms_sql.column_value(l_cur, i, read_clob);
+                            data_list.append(pljson_value(read_clob));
+                        END IF;
+                    WHEN l_dtbl(i).col_type = 113 THEN
+                        --blob
+                        IF (include_blobs) THEN
+                            dbms_sql.column_value(l_cur, i, read_blob);
+                            IF (dbms_lob.getlength(read_blob) > 0) THEN
+                                data_list.append(pljson_ext.encode(read_blob));
+                            ELSE
+                                data_list.append(pljson_value.makenull);
+                            END IF;
+                        END IF;
+                    ELSE
+                        NULL; --discard other types
+                END CASE;
+            END LOOP;
+            inner_list_data.append(data_list);
+        END LOOP;
+    
+        outer_obj.put('names', inner_list_names.to_json_value);
+        outer_obj.put('data', inner_list_data.to_json_value);
+        dbms_sql.close_cursor(l_cur);
+        RETURN outer_obj;
+    END executeobject;
+
+END pljson_dyn;
+/
+
 /*
-  -- 11gR2
-  function executeList(stmt in out sys_refcursor) return json_list as
-    l_cur number;
-  begin
-    l_cur := dbms_sql.to_cursor_number(stmt);
-    return json_dyn.executeList(null, null, l_cur);
-  end;
-
-  -- 11gR2
-  function executeObject(stmt in out sys_refcursor) return json as
-    l_cur number;
-  begin
-    l_cur := dbms_sql.to_cursor_number(stmt);
-    return json_dyn.executeObject(null, null, l_cur);
-  end;
-*/
-
-  procedure bind_json(l_cur number, bindvar pljson) as
-    keylist pljson_list := bindvar.get_keys();
-  begin
-    for i in 1 .. keylist.count loop
-      if(bindvar.get(i).get_type = 'number') then
-        dbms_sql.bind_variable(l_cur, ':'||keylist.get(i).get_string, bindvar.get(i).get_number);
-      elsif(bindvar.get(i).get_type = 'array') then
-        declare
-          v_bind dbms_sql.varchar2_table;
-          v_arr  pljson_list := pljson_list(bindvar.get(i));
-        begin
-          for j in 1 .. v_arr.count loop
-            v_bind(j) := v_arr.get(j).value_of;
-          end loop;
-          dbms_sql.bind_array(l_cur, ':'||keylist.get(i).get_string, v_bind);
-        end;
-      else
-        dbms_sql.bind_variable(l_cur, ':'||keylist.get(i).get_string, bindvar.get(i).value_of());
-      end if;
-    end loop;
-  end bind_json;
-
-  /* list with objects */
-  function executeList(stmt varchar2, bindvar pljson, cur_num number) return pljson_list as
-    l_cur number;
-    l_dtbl dbms_sql.desc_tab2;
-    l_cnt number;
-    l_status number;
-    l_val varchar2(4000);
-    outer_list pljson_list := pljson_list();
-    inner_obj pljson;
-    conv number;
-    read_date date;
-    read_clob clob;
-    read_blob blob;
-    col_type number;
-  begin
-    if(cur_num is not null) then
-      l_cur := cur_num;
-    else
-      l_cur := dbms_sql.open_cursor;
-      dbms_sql.parse(l_cur, stmt, dbms_sql.native);
-      if(bindvar is not null) then bind_json(l_cur, bindvar); end if;
-    end if;
-    dbms_sql.describe_columns2(l_cur, l_cnt, l_dtbl);
-    for i in 1..l_cnt loop
-      col_type := l_dtbl(i).col_type;
-      --dbms_output.put_line(col_type);
-      if(col_type = 12) then
-        dbms_sql.define_column(l_cur,i,read_date);
-      elsif(col_type = 112) then
-        dbms_sql.define_column(l_cur,i,read_clob);
-      elsif(col_type = 113) then
-        dbms_sql.define_column(l_cur,i,read_blob);
-      elsif(col_type in (1,2,96)) then
-        dbms_sql.define_column(l_cur,i,l_val,4000);
-      end if;
-    end loop;
-
-    if(cur_num is null) then l_status := dbms_sql.execute(l_cur); end if;
-
-    --loop through rows
-    while ( dbms_sql.fetch_rows(l_cur) > 0 ) loop
-      inner_obj := pljson(); --init for each row
-      --loop through columns
-      for i in 1..l_cnt loop
-        case true
-        --handling string types
-        when l_dtbl(i).col_type in (1,96) then -- varchar2
-          dbms_sql.column_value(l_cur,i,l_val);
-          if(l_val is null) then
-            if(null_as_empty_string) then
-              inner_obj.put(l_dtbl(i).col_name, ''); --treatet as emptystring?
-            else
-              inner_obj.put(l_dtbl(i).col_name, pljson_value.makenull); --null
-            end if;
-          else
-            inner_obj.put(l_dtbl(i).col_name, pljson_value(l_val)); --null
-          end if;
-          --dbms_output.put_line(l_dtbl(i).col_name||' --> '||l_val||'varchar2' ||l_dtbl(i).col_type);
-        --handling number types
-        when l_dtbl(i).col_type = 2 then -- number
-          dbms_sql.column_value(l_cur,i,l_val);
-          conv := l_val;
-          inner_obj.put(l_dtbl(i).col_name, conv);
-          -- dbms_output.put_line(l_dtbl(i).col_name||' --> '||l_val||'number ' ||l_dtbl(i).col_type);
-        when l_dtbl(i).col_type = 12 then -- date
-          if(include_dates) then
-            dbms_sql.column_value(l_cur,i,read_date);
-            inner_obj.put(l_dtbl(i).col_name, pljson_ext.to_json_value(read_date));
-          end if;
-          --dbms_output.put_line(l_dtbl(i).col_name||' --> '||l_val||'date ' ||l_dtbl(i).col_type);
-        when l_dtbl(i).col_type = 112 then --clob
-          if(include_clobs) then
-            dbms_sql.column_value(l_cur,i,read_clob);
-            inner_obj.put(l_dtbl(i).col_name, pljson_value(read_clob));
-          end if;
-        when l_dtbl(i).col_type = 113 then --blob
-          if(include_blobs) then
-            dbms_sql.column_value(l_cur,i,read_blob);
-            if(dbms_lob.getlength(read_blob) > 0) then
-              inner_obj.put(l_dtbl(i).col_name, pljson_ext.encode(read_blob));
-            else
-              inner_obj.put(l_dtbl(i).col_name, pljson_value.makenull);
-            end if;
-          end if;
-
-        else null; --discard other types
-        end case;
-      end loop;
-      outer_list.append(inner_obj.to_json_value);
-    end loop;
-    dbms_sql.close_cursor(l_cur);
-    return outer_list;
-  end executeList;
-
-  /* object with lists */
-  function executeObject(stmt varchar2, bindvar pljson, cur_num number) return pljson as
-    l_cur number;
-    l_dtbl dbms_sql.desc_tab;
-    l_cnt number;
-    l_status number;
-    l_val varchar2(4000);
-    inner_list_names pljson_list := pljson_list();
-    inner_list_data pljson_list := pljson_list();
-    data_list pljson_list;
-    outer_obj pljson := pljson();
-    conv number;
-    read_date date;
-    read_clob clob;
-    read_blob blob;
-    col_type number;
-  begin
-    if(cur_num is not null) then
-      l_cur := cur_num;
-    else
-      l_cur := dbms_sql.open_cursor;
-      dbms_sql.parse(l_cur, stmt, dbms_sql.native);
-      if(bindvar is not null) then bind_json(l_cur, bindvar); end if;
-    end if;
-    dbms_sql.describe_columns(l_cur, l_cnt, l_dtbl);
-    for i in 1..l_cnt loop
-      col_type := l_dtbl(i).col_type;
-      if(col_type = 12) then
-        dbms_sql.define_column(l_cur,i,read_date);
-      elsif(col_type = 112) then
-        dbms_sql.define_column(l_cur,i,read_clob);
-      elsif(col_type = 113) then
-        dbms_sql.define_column(l_cur,i,read_blob);
-      elsif(col_type in (1,2,96)) then
-        dbms_sql.define_column(l_cur,i,l_val,4000);
-      end if;
-    end loop;
-    if(cur_num is null) then l_status := dbms_sql.execute(l_cur); end if;
-
-    --build up name_list
-    for i in 1..l_cnt loop
-      case l_dtbl(i).col_type
-        when 1 then inner_list_names.append(l_dtbl(i).col_name);
-        when 96 then inner_list_names.append(l_dtbl(i).col_name);
-        when 2 then inner_list_names.append(l_dtbl(i).col_name);
-        when 12 then if(include_dates) then inner_list_names.append(l_dtbl(i).col_name); end if;
-        when 112 then if(include_clobs) then inner_list_names.append(l_dtbl(i).col_name); end if;
-        when 113 then if(include_blobs) then inner_list_names.append(l_dtbl(i).col_name); end if;
-        else null;
-      end case;
-    end loop;
-
-    --loop through rows
-    while ( dbms_sql.fetch_rows(l_cur) > 0 ) loop
-      data_list := pljson_list();
-      --loop through columns
-      for i in 1..l_cnt loop
-        case true
-        --handling string types
-        when l_dtbl(i).col_type in (1,96) then -- varchar2
-          dbms_sql.column_value(l_cur,i,l_val);
-          if(l_val is null) then
-            if(null_as_empty_string) then
-              data_list.append(''); --treatet as emptystring?
-            else
-              data_list.append(pljson_value.makenull); --null
-            end if;
-          else
-            data_list.append(pljson_value(l_val)); --null
-          end if;
-          --dbms_output.put_line(l_dtbl(i).col_name||' --> '||l_val||'varchar2' ||l_dtbl(i).col_type);
-        --handling number types
-        when l_dtbl(i).col_type = 2 then -- number
-          dbms_sql.column_value(l_cur,i,l_val);
-          conv := l_val;
-          data_list.append(conv);
-          -- dbms_output.put_line(l_dtbl(i).col_name||' --> '||l_val||'number ' ||l_dtbl(i).col_type);
-        when l_dtbl(i).col_type = 12 then -- date
-          if(include_dates) then
-            dbms_sql.column_value(l_cur,i,read_date);
-            data_list.append(pljson_ext.to_json_value(read_date));
-          end if;
-          --dbms_output.put_line(l_dtbl(i).col_name||' --> '||l_val||'date ' ||l_dtbl(i).col_type);
-        when l_dtbl(i).col_type = 112 then --clob
-          if(include_clobs) then
-            dbms_sql.column_value(l_cur,i,read_clob);
-            data_list.append(pljson_value(read_clob));
-          end if;
-        when l_dtbl(i).col_type = 113 then --blob
-          if(include_blobs) then
-            dbms_sql.column_value(l_cur,i,read_blob);
-            if(dbms_lob.getlength(read_blob) > 0) then
-              data_list.append(pljson_ext.encode(read_blob));
-            else
-              data_list.append(pljson_value.makenull);
-            end if;
-          end if;
-        else null; --discard other types
-        end case;
-      end loop;
-      inner_list_data.append(data_list);
-    end loop;
-
-    outer_obj.put('names', inner_list_names.to_json_value);
-    outer_obj.put('data', inner_list_data.to_json_value);
-    dbms_sql.close_cursor(l_cur);
-    return outer_obj;
-  end executeObject;
-
-end pljson_dyn;
-/
+DECLARE
+    res pljson_list;
+BEGIN
+    res := pljson_dyn.executelist('select :bindme as one, :lala as two from dual where dummy in :arraybind',
+                                pljson('{bindme:"4", lala:123, arraybind:[1,2,3,"X"]}'));
+    res.print;
+END;
+  */
