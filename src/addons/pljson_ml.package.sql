@@ -267,3 +267,29 @@ create or replace package body pljson_ml as
 
 end pljson_ml;
 /
+
+				 
+/*				 
+BEGIN
+    pljson_ml.xml2json(xmltype('<?xml version="1.0" encoding="UTF-8" ?>
+   <collection xmlns="">
+     <record>
+       <leader>-----nam0-22-----^^^450-</leader>
+       <datafield tag="200" ind1="1" ind2=" ">
+         <subfield code="a">Lebron</subfield>
+         <subfield code="f">Love</subfield>
+       </datafield>
+       <datafield tag="209" ind1=" " ind2=" ">
+         <subfield code="a">Harden</subfield>
+         <subfield code="b">Paul</subfield>
+         <subfield code="c">Durant</subfield>
+         <subfield code="d">Curry</subfield>
+       </datafield>
+       <datafield tag="610" ind1="0" ind2=" ">
+         <subfield code="a">Davis</subfield>
+         <subfield code="a">Rondo</subfield>
+       </datafield>
+     </record>
+   </collection>')).print();
+END;
+*/
