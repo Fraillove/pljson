@@ -60,17 +60,3 @@ PROMPT ------------------------------------------;
 @@src/addons/pljson_table_impl.type.decl.sql -- dynamic table from json document
 @@src/addons/pljson_table_impl.type.impl.sql -- dynamic table from json document
 @@testsuite/pljson_ut.package.sql -- pljson unit test mini framework
--- synonyms for backwards compatibility
-create synonym json_parser for pljson_parser;
-create synonym json_printer for pljson_printer;
-create synonym json_ext for pljson_ext;
-create synonym json_dyn for pljson_dyn;
-create synonym json_xml for pljson_xml;
-create synonym json_util_pkg for pljson_util_pkg;
-create synonym json_helper for pljson_helper;
-create synonym json_ac for pljson_ac;
-create synonym json for pljson;
-create synonym json_list for pljson_list;
-create synonym json_value_array for pljson_value_array;
-create synonym json_value for pljson_value;
-create synonym json_table for pljson_table;
