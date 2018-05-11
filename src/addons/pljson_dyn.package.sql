@@ -3,6 +3,7 @@ CREATE OR REPLACE PACKAGE pljson_dyn AUTHID CURRENT_USER AS
     include_dates        BOOLEAN NOT NULL := TRUE;
     include_clobs        BOOLEAN NOT NULL := TRUE;
     include_blobs        BOOLEAN NOT NULL := FALSE;
+    include_arrays       BOOLEAN NOT NULL := TRUE;  -- pljson_varray or pljson_narray
 
     /* list with objects */
     FUNCTION executelist
@@ -32,18 +33,18 @@ CREATE OR REPLACE PACKAGE BODY pljson_dyn AS
 
     $if DBMS_DB_VERSION.ver_le_11_2 $then
 
-    FUNCTION executelist(stmt IN OUT SYS_REFCURSOR) RETURN json_list AS
+    FUNCTION executelist(stmt IN OUT SYS_REFCURSOR) RETURN pljson_list AS
         l_cur NUMBER;
     BEGIN
         l_cur := dbms_sql.to_cursor_number(stmt);
-        RETURN json_dyn.executelist(NULL, NULL, l_cur);
+        RETURN pljson_dyn.executelist(NULL, NULL, l_cur);
     END;
 
-    FUNCTION executeobject(stmt IN OUT SYS_REFCURSOR) RETURN json AS
+    FUNCTION executeobject(stmt IN OUT SYS_REFCURSOR) RETURN pljson AS
         l_cur NUMBER;
     BEGIN
         l_cur := dbms_sql.to_cursor_number(stmt);
-        RETURN json_dyn.executeobject(NULL, NULL, l_cur);
+        RETURN pljson_dyn.executeobject(NULL, NULL, l_cur);
     END;
     $end
 
@@ -87,7 +88,7 @@ CREATE OR REPLACE PACKAGE BODY pljson_dyn AS
         cur_num NUMBER
     ) RETURN pljson_list AS
         l_cur      NUMBER;
-        l_dtbl     dbms_sql.desc_tab2;
+        l_dtbl     dbms_sql.desc_tab3;
         l_cnt      NUMBER;
         l_status   NUMBER;
         l_val      VARCHAR2(4000);
@@ -98,6 +99,8 @@ CREATE OR REPLACE PACKAGE BODY pljson_dyn AS
         read_clob  CLOB;
         read_blob  BLOB;
         col_type   NUMBER;
+        read_varray pljson_varray;
+        read_narray pljson_narray;
     BEGIN
         IF (cur_num IS NOT NULL) THEN
             l_cur := cur_num;
@@ -108,7 +111,7 @@ CREATE OR REPLACE PACKAGE BODY pljson_dyn AS
                 bind_json(l_cur, bindvar);
             END IF;
         END IF;
-        dbms_sql.describe_columns2(l_cur, l_cnt, l_dtbl);
+        dbms_sql.describe_columns3(l_cur, l_cnt, l_dtbl);
         FOR i IN 1 .. l_cnt LOOP
             col_type := l_dtbl(i).col_type;
             --do.pl(col_type);
@@ -120,6 +123,12 @@ CREATE OR REPLACE PACKAGE BODY pljson_dyn AS
                 dbms_sql.define_column(l_cur, i, read_blob);
             ELSIF (col_type IN (1, 2, 96)) THEN
                 dbms_sql.define_column(l_cur, i, l_val, 4000);
+       elsif(col_type = 109 and l_dtbl(i).col_type_name = 'PLJSON_VARRAY') then
+         dbms_sql.define_column(l_cur,i,read_varray);
+       elsif(col_type = 109 and l_dtbl(i).col_type_name = 'PLJSON_NARRAY') then
+         dbms_sql.define_column(l_cur,i,read_narray);
+       else
+         dbms_output.put_line('unhandled col_type =' || col_type);
             END IF;
         END LOOP;
     
@@ -179,7 +188,17 @@ CREATE OR REPLACE PACKAGE BODY pljson_dyn AS
                                               pljson_value.makenull);
                             END IF;
                         END IF;
-                    
+         when l_dtbl(i).col_type = 109 and l_dtbl(i).col_type_name = 'PLJSON_VARRAY' then
+           if (include_arrays) then
+             dbms_sql.column_value(l_cur,i,read_varray);
+             inner_obj.put(l_dtbl(i).col_name, pljson_list(read_varray));
+           end if;
+         when l_dtbl(i).col_type = 109 and l_dtbl(i).col_type_name = 'PLJSON_NARRAY' then
+           if (include_arrays) then
+             dbms_sql.column_value(l_cur,i,read_narray);
+             inner_obj.put(l_dtbl(i).col_name, pljson_list(read_narray));
+           end if;
+      
                     ELSE
                         NULL; --discard other types
                 END CASE;
