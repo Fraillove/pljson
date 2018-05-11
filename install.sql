@@ -43,8 +43,7 @@ PROMPT -----------------------------------;
 @@src/pljson_parser.impl.sql
 @@src/pljson_printer.package.sql
 @@src/pljson_value.type.impl.sql
-@@src/pljson_ext.decl.sql --extra helper functions
-@@src/pljson_ext.impl.sql
+@@src/pljson_ext.package.sql --extra helper functions
 @@src/pljson_list.type.impl.sql
 --@@src/grantsandsynonyms.sql --grants to core API
 @@src/pljson_ac.package.sql --Wrapper to enhance autocompletion
