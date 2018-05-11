@@ -57,7 +57,7 @@ PROMPT ------------------------------------------;
 @@src/addons/pljson_xml.package.sql --json to xml and xml to json copied from http://www.json.org/java/org/json/XML.java
 @@src/addons/pljson_util_pkg.package.sql --dynamic sql from http://ora-00001.blogspot.com/2010/02/ref-cursor-to-json.html
 @@src/addons/pljson_helper.package.sql --Set operations on JSON and JSON_LIST
-@@src/addons/pljson_table_impl.type.sql -- dynamic table from json document
+@@src/addons/pljson_table.type.sql -- dynamic table from json document
 @@src/util/do.package.sql -- dbms_output.put_line
 
 @@testsuite/pljson_ut.package.sql -- pljson unit test mini framework
