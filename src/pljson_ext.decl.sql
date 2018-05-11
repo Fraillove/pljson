@@ -70,10 +70,15 @@ create or replace package pljson_ext as
   function encode(binarydata blob) return pljson_value;
   function decode(v pljson_value) return blob;
 
-  /*
-    implemented as a procedure to force you to declare the CLOB so you can free it later
-  */
-  procedure blob2clob(b blob, c out clob, charset varchar2 default 'UTF8');
 
+  
+  function clob2blob(
+    p_clob in clob)
+    return blob;
+
+  function blob2clob(
+    p_blob in blob,
+    p_blob_csid in integer default dbms_lob.default_csid)
+    return clob;
 end pljson_ext;
 /
