@@ -8,9 +8,8 @@ create or replace type pljson_vtab as table of pljson_varray;
 create or replace type pljson_narray as table of number;
 /
 
-create synonym pljson_table for pljson_table_impl;
 
-CREATE OR REPLACE TYPE pljson_table_impl AS OBJECT
+CREATE OR REPLACE TYPE pljson_table AS OBJECT
 (
 
     str CLOB, -- varchar2(32767),
@@ -121,7 +120,7 @@ CREATE OR REPLACE TYPE pljson_table_impl AS OBJECT
 );
 /
 
-CREATE OR REPLACE TYPE BODY pljson_table_impl AS
+CREATE OR REPLACE TYPE BODY pljson_table AS
 
 
     STATIC FUNCTION odcitabledescribe
