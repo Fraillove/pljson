@@ -38,14 +38,13 @@ PROMPT -----------------------------------;
 @@src/pljson_element.type.decl.sql
 @@src/pljson_value.type.decl.sql
 @@src/pljson_list.type.decl.sql
-@@src/pljson.type.decl.sql
+@@src/pljson.type.sql
 @@src/pljson_parser.decl.sql
 @@src/pljson_parser.impl.sql
 @@src/pljson_printer.package.sql
 @@src/pljson_value.type.impl.sql
 @@src/pljson_ext.decl.sql --extra helper functions
 @@src/pljson_ext.impl.sql
-@@src/pljson.type.impl.sql
 @@src/pljson_list.type.impl.sql
 --@@src/grantsandsynonyms.sql --grants to core API
 @@src/pljson_ac.package.sql --Wrapper to enhance autocompletion
