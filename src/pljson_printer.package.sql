@@ -1,22 +1,4 @@
 create or replace package pljson_printer as
-  /*
-  Copyright (c) 2010 Jonas Krogsboell
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-  */
   indent_string varchar2(10 char) := '  '; --chr(9); for tab
   newline_char varchar2(2 char)   := chr(13)||chr(10); -- Windows style
   --newline_char varchar2(2) := chr(10); -- Mac style
@@ -69,7 +51,7 @@ create or replace package body pljson_printer as
   end llcheck;
   
   -- escapes a single character.
-  function escapeChar(ch char) return varchar2 deterministic is
+    function escapeChar(ch char) return varchar2 deterministic is
      result varchar2(20);
   begin
       --backspace b = U+0008
@@ -78,21 +60,23 @@ create or replace package body pljson_printer as
       --carret    r = U+000D
       --tabulator t = U+0009
       result := ch;
-      
+
       case ch
       when chr( 8) then result := '\b';
       when chr( 9) then result := '\t';
       when chr(10) then result := '\n';
       when chr(12) then result := '\f';
       when chr(13) then result := '\r';
-      when chr(34) then result := '\"';
+  --    when chr(34) then result := '\"';
       when chr(47) then if(escape_solidus) then result := '\/'; end if;
-      when chr(92) then result := '\\';
-      else if(ascii(ch) < 32) then
+      when chr(92) then result := '';
+  /*    else if(ascii(ch) < 32) then
              result :=  '\u'||replace(substr(to_char(ascii(ch), 'XXXX'),2,4), ' ', '0');
         elsif (ascii_output) then
              result := replace(asciistr(ch), '\', '\u');
-        end if;
+        end if;*/
+      ELSE 
+        null;
       end case;
       return result;
   end;
@@ -185,7 +169,6 @@ create or replace package body pljson_printer as
   
   procedure ppString(elem pljson_value, buf in out nocopy clob, buf_str in out nocopy varchar2) is
     offset number := 1;
-    /* E.I.Sarmas (github.com/dsnz)   2016-01-21   limit to 5000 chars */
     v_str varchar(5000 char);
     amount number := 5000; /* chunk size for use in escapeString; maximum escaped unicode string size for chunk may be 6 one-byte chars * 5000 chunk size in multi-byte chars = 30000 1-byte chars (maximum value is 32767 1-byte chars) */
   begin
@@ -366,7 +349,6 @@ create or replace package body pljson_printer as
   
   procedure ppString(elem pljson_value, buf in out nocopy varchar2) is
     offset number := 1;
-    /* E.I.Sarmas (github.com/dsnz)   2016-01-21   limit to 5000 chars */
     v_str varchar(5000 char);
     amount number := 5000; /* chunk size for use in escapeString; maximum escaped unicode string size for chunk may be 6 one-byte chars * 5000 chunk size in multi-byte chars = 30000 1-byte chars (maximum value is 32767 1-byte chars) */
   begin
