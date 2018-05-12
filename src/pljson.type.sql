@@ -243,7 +243,7 @@ CREATE OR REPLACE TYPE BODY pljson AS
     ) RETURN SELF AS RESULT AS
         c_str CLOB;
     BEGIN
-        pljson_ext.blob2clob(str, c_str, charset);
+        c_str                    := pljson_ext.blob2clob(str, charset);
         SELF                     := pljson_parser.parser(c_str);
         self.check_for_duplicate := 1;
         dbms_lob.freetemporary(c_str);
