@@ -16,7 +16,7 @@ CREATE OR REPLACE PACKAGE pljson_parser AS
         src    VARCHAR2(32767),
         s_clob CLOB);
 
-    json_strict BOOLEAN NOT NULL := FALSE;
+    json_strict BOOLEAN NOT NULL := TRUE;
 
     FUNCTION next_char
     (
